@@ -1,8 +1,8 @@
 # Media Consumption Calendar
 
-[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/arnavratan)
-
 A month-view calendar for logging what you read, watch, play and listen to. Each day shows the covers of the things you consumed. Supports comics, manga, books, movies, TV, anime, games and podcasts.
+
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/arnavratan)
 
 <!-- Add a screenshot here: ![Calendar view](./images/calendar.png) -->
 
