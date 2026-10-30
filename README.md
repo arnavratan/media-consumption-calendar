@@ -4,72 +4,75 @@ An obsidian plugin for a month-view calendar which logs what you read, watch, pl
 
 [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/arnavratan)
 
-![Screenshot 1](https://github.com/user-attachments/assets/5cbe87d0-88d6-4bb4-bcba-1ef2affa6f55)
-![Screenshot 2](https://github.com/user-attachments/assets/abe6089b-d4a0-4208-8b63-e56a1ef19293)
-![Screenshot 3](https://github.com/user-attachments/assets/dc18ad9d-0858-42c6-b054-5c8b3b1ab20c)
-![Screenshot 4](https://github.com/user-attachments/assets/c5a855ab-55ce-4f5a-bd62-b07e930b84e6)
+![Screenshot 1](https://github.com/user-attachments/assets/288ec429-9045-432e-aa4d-f6ad72109a91)
+![Screenshot 2](https://github.com/user-attachments/assets/c3c0acdc-e602-4016-a925-207d5fb01338)
+![Screenshot 3](https://github.com/user-attachments/assets/af9aa7cb-062f-43ea-b507-bd0c110c263b)
+![Screenshot 4](https://github.com/user-attachments/assets/c9296f71-fa88-43bf-9f82-4d5e56eb651e)
+![Screenshot 5](https://github.com/user-attachments/assets/5b9e0176-d090-4e05-8e50-49bc198050f5)
 
 <!-- Add a screenshot here: ![Calendar view](./images/calendar.png) -->
 
 ## Features
 
-- Month calendar with cover art on each day, a "+N" tile when a day overflows, and per-type filtering.
-- Search-and-select with cover art, or add an entry manually when nothing is found.
-- Change covers, rename, edit details, duplicate to another day (drag a cover onto a date), delete.
-- Adjustable cover size and add/edit window size.
-- All entries live in a single JSON file in your vault (default `Media/media-cache.json`), so it syncs with your vault. No per-item notes are created.
-- Your data is protected: malformed entries are set aside under `unparsed` instead of deleted, an unreadable file locks saving instead of overwriting it, and a `.bak.json` safety copy is written once per session.
+* **Card deck stacking:** Each day's covers can overlap like a deck of cards with hover-to-lift interactions (can be toggled off for a classic grid).
+* **Drag-and-drop management:** Drag cards within the same day to reorder them, or drag onto another day to either duplicate or move entries (configurable in settings).
+* **Customizable aesthetics:** Transparent calendar background that adopts your active Obsidian theme, adjustable cover sizes, and frosted-glass add/edit modal windows with an adjustable background blur slider.
+* **Search-and-select:** Fetch cover art automatically (with unified Book/Comic lookup) or add custom entries manually when no result is found.
+* **Full entry control:** Change covers directly via entry details, rename, edit fields, duplicate, reorder via right-click ("Bring to front" / "Send to back"), or delete.
+* **Unified local storage:** All entries are stored in a single JSON file in your vault (default `Media/media-cache.json`) with an optional `order` attribute. No per-item notes are created.
+* **Data safety protections:** Malformed items are routed to `unparsed` rather than deleted, unreadable files trigger save locks to prevent overwrites, and `.bak.json` safety backups are generated once per session.
 
 ## Usage
 
-- Open the calendar from the ribbon icon or the command **Open calendar**.
-- Click a day, or use **+ Quick add**, to search and add an entry.
-- Right-click a cover for rename, change cover, duplicate and delete.
+* Open the calendar from the ribbon icon or via the command **Open calendar**.
+* Click a day or use **+ Quick add** to search and log an entry.
+* Click a card to view and edit details, or update cover art directly under the preview.
+* Reorder cards on the same day by dragging, or right-click (or long-press on mobile) and select **Bring to front** or **Send to back**.
+* Drag a card to another day to duplicate or move it, depending on your preferences under **Settings**.
 
 ## Setup
 
-Some sources need a free API key, entered in **Settings → Media Consumption Calendar**:
+Some external sources require a free API key, configured in **Settings → Media Consumption Calendar**:
 
 | Media | Source | Key needed |
 | --- | --- | --- |
 | Movies, TV | TMDB | Yes (free) |
 | Games | IGDB (preferred) or RAWG | Yes (free) |
-| Books | Open Library, then Google Books | No (Google key optional) |
-| Comics | Google Books | No (key optional) |
+| Books, Comics | Open Library, Google Books | No (Google Books key optional) |
 | Manga, anime | AniList | No |
 | Podcasts | Apple iTunes Search API | No |
 
-You can always add entries manually without any key.
+*Manual entries and custom cover URLs can always be added without API keys.*
 
 ## Where your data lives
 
-Your entries are stored in `Media/media-cache.json` (you can change the path in the settings). It is a normal vault file, so it syncs like the rest of your vault and **uninstalling and reinstalling the plugin keeps your data**: reinstall and your calendar is back.
+Your entries are stored in `Media/media-cache.json` (configurable in settings). Because it is a standard vault file, it syncs alongside your notes and **persists across plugin updates or reinstalls**.
 
-- If you use Obsidian Sync, make sure **Other file types** is enabled under Settings → Sync → Selective sync, or `.json` files won't sync. Third-party sync tools (iCloud, Dropbox, Syncthing, Git) handle the file normally.
-- If you choose a custom path, it is remembered in the plugin's settings, which are removed on uninstall, so enter the path again after a reinstall.
-- If you edit the file outside Obsidian, run **Reload data from file**.
+* **Obsidian Sync:** Ensure **Other file types** is toggled on under **Settings → Sync → Selective sync** to include `.json` files. Third-party sync providers (iCloud, Dropbox, Syncthing, Git) sync it natively.
+* **Custom Paths:** Custom file locations are stored in plugin settings and must be re-entered if the plugin is uninstalled.
+* **External Edits:** If you edit the cache file externally, run **Reload data from file** from the command palette.
+* **Backward Compatibility:** Order metadata is stored using an optional `order` key; older versions gracefully ignore this field without corrupting data.
 
 ## Disclosures
 
-- **Network use.** Searching sends the text you typed to the service for the media type you chose: `api.themoviedb.org` (TMDB), `openlibrary.org`, `www.googleapis.com` (Google Books), `graphql.anilist.co` (AniList), `id.twitch.tv` and `api.igdb.com` (IGDB, with your Twitch client credentials), `api.rawg.io` (RAWG) and `itunes.apple.com` (podcasts). Cover images are loaded directly from the hosting CDN of the service that returned them (for example `image.tmdb.org`, `covers.openlibrary.org`, `images.igdb.com`, Apple's image servers) or from any image URL you paste yourself.
-- **API keys** you enter are stored in plain text in this plugin's `data.json` inside your vault's plugin folder, not in the media file. Do not sync that folder to places you don't trust.
-- **Files.** The plugin reads and writes only the data file you configure inside your vault (default `Media/media-cache.json`), plus `.bak.json` and `.corrupt-<timestamp>.json` safety copies next to it. It uses the vault adapter because the data is a plain JSON file rather than a note. Nothing outside the vault is accessed.
-- **Support link.** The settings tab and this README contain an optional static link to Buy Me a Coffee. It opens in your browser only when clicked. No payment is required to use any feature.
-- **No telemetry, no ads, no account, no payment.** The plugin is free. Third-party services have their own terms and rate limits.
+* **Network use:** Search queries send entered text to relevant third-party endpoints: `api.themoviedb.org` (TMDB), `openlibrary.org`, `[www.googleapis.com](https://www.googleapis.com)` (Google Books), `graphql.anilist.co` (AniList), `id.twitch.tv` and `api.igdb.com` (IGDB), `api.rawg.io` (RAWG), and `itunes.apple.com` (Apple Podcasts). Images are loaded directly from the respective service CDNs or custom user-provided URLs.
+* **API keys:** Keys are stored in plain text in `data.json` inside your vault's plugin folder (`.obsidian/plugins/media-consumption-calendar/`). Exclude this folder from unencrypted or public sync targets.
+* **File system access:** Reads and writes are strictly restricted to your configured data JSON path and local recovery copies (`.bak.json` and `.corrupt-<timestamp>.json`). No files outside the vault are accessed.
+* **Support link:** An optional external link to Buy Me a Coffee is included in the README and settings tab; it connects only when deliberately clicked.
+* **Privacy:** No telemetry, tracking, account requirements, or ads.
 
 ## Installation
 
-Install from **Settings → Community plugins** by searching for "Media Consumption Calendar".
-
-Manual install: download `main.js`, `manifest.json` and `styles.css` from the latest release into `<vault>/.obsidian/plugins/media-consumption-calendar/`, then enable the plugin.
+* **Community Plugins:** Search for **Media Consumption Calendar** under **Settings → Community plugins** and click **Install**.
+* **Manual Installation:** Download `main.js`, `manifest.json`, and `styles.css` from the latest release, place them in `<vault>/.obsidian/plugins/media-consumption-calendar/`, and enable the plugin under Community plugins.
 
 ## Support
 
-The plugin is free and nothing is locked behind payment. If you find it useful you can [buy me a coffee](https://buymeacoffee.com/YOUR-BMC-USERNAME). The same optional link appears in the plugin's settings.
+The plugin is completely free and uninhibited by paywalls. If you enjoy using it, you can [buy me a coffee](https://buymeacoffee.com/YOUR-BMC-USERNAME).
 
 ## Credits
 
-Metadata and artwork come from TMDB, Open Library, Google Books, AniList, IGDB, RAWG and Apple. This product uses the TMDB API but is not endorsed or certified by TMDB.
+Metadata and artwork are provided by TMDB, Open Library, Google Books, AniList, IGDB, RAWG, and Apple. This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 ## License
 
