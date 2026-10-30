@@ -4,11 +4,10 @@ An obsidian plugin for a month-view calendar which logs what you read, watch, pl
 
 [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/arnavratan)
 
-<img src="https://github.com/user-attachments/assets/729576e4-8461-44c6-bc29-3a58ce1c2265" alt="1" style="max-width: 100%; height: auto;" />
-<img src="https://github.com/user-attachments/assets/4326da46-42fd-4664-81dd-aa67148b40be" alt="2" style="max-width: 100%; height: auto;" />
-<img src="https://github.com/user-attachments/assets/778d0af2-edcc-4da2-b4fe-a122da060574" alt="3" style="max-width: 100%; height: auto;" />
-<img src="https://github.com/user-attachments/assets/90803d70-41b8-40f0-b5b5-cea57cd13535" alt="4" style="max-width: 100%; height: auto;" />
-
+![Screenshot 1](https://github.com/user-attachments/assets/5cbe87d0-88d6-4bb4-bcba-1ef2affa6f55)
+![Screenshot 2](https://github.com/user-attachments/assets/abe6089b-d4a0-4208-8b63-e56a1ef19293)
+![Screenshot 3](https://github.com/user-attachments/assets/dc18ad9d-0858-42c6-b054-5c8b3b1ab20c)
+![Screenshot 4](https://github.com/user-attachments/assets/c5a855ab-55ce-4f5a-bd62-b07e930b84e6)
 
 <!-- Add a screenshot here: ![Calendar view](./images/calendar.png) -->
 
