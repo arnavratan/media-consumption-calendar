@@ -1,7 +1,7 @@
 {
   "id": "media-consumption-calendar",
   "name": "Media Consumption Calendar",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "minAppVersion": "1.5.0",
   "description": "Log comics, manga, books, movies, TV, anime, games and podcasts on a month calendar with cover art, stored in one JSON file in your vault.",
   "author": "Arnav R",

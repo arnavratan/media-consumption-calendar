@@ -3,7 +3,7 @@ const { Plugin, ItemView, Modal, Menu, Notice, PluginSettingTab, Setting, reques
 
 const VIEW_TYPE = 'media-calendar-view';
 const TYPES = ['Comic', 'Manga', 'Book', 'Movie', 'TV', 'Anime', 'Game', 'Podcast', 'Other']; // add new categories here
-const DEFAULTS = { dataPath: 'Media/media-cache.json', tmdbKey: '', rawgKey: '', weekStartsMonday: false, maxCovers: 6, coverWidth: 44, modalWidth: 900, googleKey: '', igdbClientId: '', igdbClientSecret: '' };
+const DEFAULTS = { dataPath: 'Media/media-cache.json', tmdbKey: '', rawgKey: '', weekStartsMonday: false, maxCovers: 6, coverWidth: 44, modalWidth: 900, modalBlur: 10, stackCovers: true, dragAction: 'copy', googleKey: '', igdbClientId: '', igdbClientSecret: '' };
 const SUPPORT_URL = 'https://buymeacoffee.com/arnavratan'; // optional support link shown in settings
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -19,8 +19,10 @@ function normalize(r) {
   const title = typeof r.title === 'string' ? r.title.trim() : '';
   if (!title || typeof r.date !== 'string' || !DATE_RE.test(r.date)) return null;
   const y = parseInt(r.year, 10);
+  const order = typeof r.order === 'number' && Number.isFinite(r.order) ? r.order : undefined; // position in that day's stack
   return {
     ...r,
+    order,
     id: typeof r.id === 'string' && r.id ? r.id : uid(),
     title,
     type: TYPES.includes(r.type) ? r.type : 'Other',
@@ -30,6 +32,14 @@ function normalize(r) {
     info: typeof r.info === 'string' ? r.info : '',
   };
 }
+
+// Entries on one day, in stack order. Entries never reordered (no `order`) keep their insertion order, after any ordered ones.
+const stackSort = (a, b) => {
+  if (a.order === undefined && b.order === undefined) return 0;
+  if (a.order === undefined) return 1;
+  if (b.order === undefined) return -1;
+  return a.order - b.order;
+};
 
 class Store {
   constructor(p) { this.p = p; this.subs = new Set(); this.selfWrite = false; this.backedUp = false; this.reset(); }
@@ -98,6 +108,7 @@ class Store {
   async add(e) {
     const n = normalize({ ...e, id: uid() });
     if (!n) { new Notice('Entry needs a title and a valid date.'); return null; }
+    delete n.order; // new and duplicated entries start unordered, so they sit after any manually ordered ones
     this.entries.push(n); this.emit();
     if (!(await this.save())) { this.entries.pop(); this.emit(); return null; }
     return n;
@@ -106,6 +117,7 @@ class Store {
     const i = this.entries.findIndex(x => x.id === id); if (i < 0) return false;
     const old = this.entries[i], n = normalize({ ...old, ...patch });
     if (!n) { new Notice('Entry needs a title and a valid date.'); return false; }
+    if (n.date !== old.date) delete n.order; // moved to another day: its old position doesn't apply there
     this.entries[i] = n; this.emit();
     if (!(await this.save())) { this.entries[i] = old; this.emit(); return false; }
     return true;
@@ -116,6 +128,19 @@ class Store {
     if (!(await this.save())) { this.entries.splice(i, 0, old); this.emit(); return false; }
     return true;
   }
+  dayList(date) { return this.entries.filter(e => e.date === date).sort(stackSort); }
+  async reorder(date, ids) { // ids: every entry of that day, in the new order
+    const prev = new Map(this.entries.filter(e => e.date === date).map(e => [e, e.order]));
+    ids.forEach((id, i) => { const e = this.entries.find(x => x.id === id); if (e && e.date === date) e.order = i; });
+    this.emit();
+    if (!(await this.save())) { prev.forEach((o, e) => { if (o === undefined) delete e.order; else e.order = o; }); this.emit(); return false; }
+    return true;
+  }
+  async moveToEnd(id, toFront) { // for the right-click menu (works on touch screens too)
+    const e = this.entries.find(x => x.id === id); if (!e) return false;
+    const rest = this.dayList(e.date).filter(x => x.id !== id).map(x => x.id);
+    return this.reorder(e.date, toFront ? [id, ...rest] : [...rest, id]);
+  }
   byDate(filter) {
     const m = new Map();
     for (const e of this.entries) {
@@ -123,6 +148,7 @@ class Store {
       if (!m.has(e.date)) m.set(e.date, []);
       m.get(e.date).push(e);
     }
+    m.forEach(list => list.sort(stackSort));
     return m;
   }
 }
@@ -249,7 +275,7 @@ async function podcasts(q) { // Apple's public iTunes Search API: no key needed.
 }
 
 async function searchAll(s, q, filter) {
-  const want = t => filter === 'All' || filter === t;
+  const want = t => filter === 'All' || filter === t || (filter === 'Books/Comics' && (t === 'Book' || t === 'Comic'));
   const jobs = [];
   if (want('Movie')) jobs.push(() => tmdb(s, q, 'movie'));
   if (want('TV')) jobs.push(() => tmdb(s, q, 'tv'));
@@ -264,7 +290,7 @@ async function searchAll(s, q, filter) {
   for (const r of settled) {
     if (r.status === 'rejected') { const m = r.reason?.message || String(r.reason); if (!errors.includes(m)) errors.push(m); continue; }
     for (const x of r.value) {
-      const k = `${x.type}|${(x.title || '').toLowerCase()}|${x.year}`;
+      const k = `${x.type === 'Comic' ? 'Book' : x.type}|${(x.title || '').toLowerCase()}|${x.year}`; // Book/Comic share one list, so dedupe across them
       if (!x.title || seen.has(k)) continue;
       seen.add(k); results.push(x);
     }
@@ -290,11 +316,18 @@ function coverEl(parent, e, cls) {
   }
   return wrap;
 }
+const SAME_PLURAL = new Set(['Manga', 'TV', 'Anime', 'Other']); // read the same in the plural
+const pluralType = (t, n) => (n === 1 || SAME_PLURAL.has(t) ? t : t + 's');
 const metaLine = e => [e.type, e.year, e.info || e.sub].filter(Boolean).join(' · ');
 
 /* ───────────── modals ───────────── */
 
+let GLASS_BLUR = DEFAULTS.modalBlur; // px; kept in sync with the "Window blur" setting
+function applyGlass(modal) { // lets the stylesheet's frosted-glass blur follow the setting
+  modal.containerEl.style.setProperty('--mc-glass-blur', GLASS_BLUR + 'px');
+}
 function sizeModal(modal, plugin) {
+  applyGlass(modal);
   modal.modalEl.addClass('mc-modal-el');
   modal.modalEl.style.width = Math.min(plugin.settings.modalWidth, Math.floor(window.innerWidth * 0.95)) + 'px';
 }
@@ -310,7 +343,7 @@ class AddModal extends Modal {
     top.createEl('button', { text: 'Search', cls: 'mod-cta' }).onclick = () => this.search();
     const d = top.createEl('input', { type: 'date' }); d.value = this.date; d.onchange = () => { this.date = d.value; };
     const row = c.createDiv({ cls: 'mc-chips' });
-    ['All', ...TYPES.filter(t => t !== 'Other')].forEach(t => {
+    ['All', ...TYPES.filter(t => t !== 'Other' && t !== 'Book').map(t => t === 'Comic' ? 'Books/Comics' : t)].forEach(t => { // Book + Comic are one search chip
       const b = row.createEl('button', { text: t, cls: 'mc-chip' + (t === this.type ? ' on' : '') });
       b.onclick = () => { this.type = t; row.querySelectorAll('.mc-chip').forEach(x => x.toggleClass('on', x === b)); if (this.input.value.trim()) this.search(); };
     });
@@ -374,6 +407,7 @@ class AddModal extends Modal {
 class PromptModal extends Modal {
   constructor(app, title, value, onSubmit, opts = {}) { super(app); this.t = title; this.v = value; this.cb = onSubmit; this.o = opts; }
   onOpen() {
+    applyGlass(this);
     this.titleEl.setText(this.t);
     const i = this.contentEl.createEl('input', { type: 'text', cls: 'mc-prompt-input' }); i.value = this.v;
     const go = () => { const v = i.value.trim(); if (v) { this.close(); this.cb(v); } };
@@ -389,6 +423,7 @@ class PromptModal extends Modal {
 class ConfirmDelete extends Modal {
   constructor(app, plugin, e) { super(app); this.plugin = plugin; this.e = e; }
   onOpen() {
+    applyGlass(this);
     this.titleEl.setText('Delete entry?');
     this.contentEl.createDiv({ text: `“${this.e.title}” on ${this.e.date} will be removed from the calendar.` });
     const bar = this.contentEl.createDiv({ cls: 'mc-actions' });
@@ -405,6 +440,10 @@ function entryMenu(plugin, ev, e) {
   m.addItem(i => i.setTitle('Rename').setIcon('pencil').onClick(() => new PromptModal(app, 'Rename', e.title, v => plugin.store.update(e.id, { title: v })).open()));
   m.addItem(i => i.setTitle('Change cover…').setIcon('images').onClick(() => new CoverPicker(app, plugin, e).open()));
   m.addItem(i => i.setTitle('Set cover URL').setIcon('link').onClick(() => new PromptModal(app, 'Cover image URL', e.coverUrl || '', v => plugin.store.update(e.id, { coverUrl: v })).open()));
+  if (plugin.store.dayList(e.date).length > 1) {
+    m.addItem(i => i.setTitle('Bring to front').setIcon('arrow-up-to-line').onClick(() => plugin.store.moveToEnd(e.id, true)));
+    m.addItem(i => i.setTitle('Send to back').setIcon('arrow-down-to-line').onClick(() => plugin.store.moveToEnd(e.id, false)));
+  }
   m.addItem(i => i.setTitle('Duplicate to today').setIcon('copy').onClick(async () => { if (await plugin.store.add({ ...e, date: fmt(new Date()) })) new Notice('Duplicated to today'); }));
   m.addSeparator();
   m.addItem(i => i.setTitle('Delete').setIcon('trash').onClick(() => new ConfirmDelete(app, plugin, e).open()));
@@ -412,7 +451,7 @@ function entryMenu(plugin, ev, e) {
 }
 
 class CoverPicker extends Modal {
-  constructor(app, plugin, e) { super(app); this.plugin = plugin; this.e = e; this.tok = 0; }
+  constructor(app, plugin, e, onPick) { super(app); this.plugin = plugin; this.e = e; this.tok = 0; this.onPick = onPick; } // onPick: hand the URL back instead of saving it (used by the details window)
   onOpen() {
     sizeModal(this, this.plugin);
     const c = this.contentEl; c.addClass('mc-modal'); this.titleEl.setText('Change cover');
@@ -437,7 +476,7 @@ class CoverPicker extends Modal {
     if ((t === 'Movie' || t === 'TV') && s.tmdbKey) {
       try { (await tmdbPosters(s, q, t === 'Movie' ? 'movie' : 'tv')).forEach(x => add(x.coverUrl, x.label)); } catch (err) { msgs.push(err.message); }
     }
-    const { results, errors } = await searchAll(s, q, t === 'Other' ? 'All' : t);
+    const { results, errors } = await searchAll(s, q, t === 'Other' ? 'All' : (t === 'Book' || t === 'Comic') ? 'Books/Comics' : t);
     results.forEach(r => add(r.coverUrl, [r.title, r.year].filter(Boolean).join(' · ')));
     if (tok !== this.tok) return;
     this.grid.empty();
@@ -450,7 +489,10 @@ class CoverPicker extends Modal {
     const err = [...msgs, ...errors].join(' · ');
     this.status.setText(items.length ? `${items.length} covers. Click one to use it.${err ? ' · ' + err : ''}` : (err || 'No covers found. Try a different search or paste a URL.'));
   }
-  async pick(url) { if (await this.plugin.store.update(this.e.id, { coverUrl: url })) { new Notice('Cover updated'); this.close(); } }
+  async pick(url) {
+    if (this.onPick) { this.onPick(url); this.close(); return; }
+    if (await this.plugin.store.update(this.e.id, { coverUrl: url })) { new Notice('Cover updated'); this.close(); }
+  }
 }
 
 class DetailsModal extends Modal {
@@ -460,17 +502,20 @@ class DetailsModal extends Modal {
     const c = this.contentEl; c.addClass('mc-modal'); this.titleEl.setText('Entry details');
     const e = this.e, body = c.createDiv({ cls: 'mc-details' });
     const left = body.createDiv({ cls: 'mc-details-cover' });
-    const draw = url => { left.empty(); coverEl(left, { ...e, coverUrl: url }); };
+    const coverBox = left.createDiv();
+    const draw = url => { coverBox.empty(); coverEl(coverBox, { ...e, coverUrl: url }); };
     draw(e.coverUrl);
+    const changeBtn = left.createEl('button', { text: 'Change cover', cls: 'mc-change-cover' });
     const f = body.createDiv({ cls: 'mc-form mc-grow' });
     const field = (label, el) => { const w = f.createDiv({ cls: 'mc-field' }); w.createEl('label', { text: label }); w.appendChild(el); return el; };
     const title = field('Title', createEl('input', { type: 'text' })); title.value = e.title;
     const type = field('Type', createEl('select')); TYPES.forEach(t => type.createEl('option', { text: t, value: t })); type.value = e.type;
     const date = field('Date', createEl('input', { type: 'date' })); date.value = e.date;
-    const year = field('Year', createEl('input', { type: 'number' })); year.value = e.year ?? '';
+    const year = field('Year of Release', createEl('input', { type: 'number' })); year.value = e.year ?? '';
     const info = field('Details', createEl('input', { type: 'text' })); info.value = e.info || '';
-    const cover = field('Cover URL', createEl('input', { type: 'text' })); cover.value = e.coverUrl || '';
+    const cover = field('Custom Cover URL', createEl('input', { type: 'text' })); cover.value = e.coverUrl || '';
     cover.onchange = () => draw(cover.value.trim());
+    changeBtn.onclick = () => new CoverPicker(this.app, this.plugin, { ...e, title: title.value.trim() || e.title, type: type.value }, url => { cover.value = url; draw(url); }).open(); // applied when you press Save
     const bar = c.createDiv({ cls: 'mc-actions' });
     const del = bar.createEl('button', { text: 'Delete', cls: 'mod-warning' });
     let armed = false;
@@ -494,7 +539,7 @@ class DayModal extends Modal {
     const c = this.contentEl; c.empty();
     const [y, m, d] = this.date.split('-').map(Number);
     this.titleEl.setText(new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
-    const list = this.plugin.store.entries.filter(e => e.date === this.date);
+    const list = this.plugin.store.dayList(this.date);
     c.createEl('button', { text: '+ Add media', cls: 'mod-cta' }).onclick = () => new AddModal(this.app, this.plugin, this.date).open();
     if (!list.length) { c.createDiv({ cls: 'mc-empty', text: 'Nothing logged on this day yet.' }); return; }
     const box = c.createDiv({ cls: 'mc-daylist' });
@@ -559,7 +604,7 @@ class CalView extends ItemView {
     const pre = `${this.year}-${pad(this.month + 1)}-`;
     const list = this.plugin.store.entries.filter(e => e.date.startsWith(pre) && (this.filter === 'All' || e.type === this.filter));
     const by = {}; list.forEach(e => { by[e.type] = (by[e.type] || 0) + 1; });
-    const parts = Object.entries(by).map(([k, v]) => `${v} ${k}`).join(' · ');
+    const parts = Object.entries(by).map(([k, v]) => `${v} ${pluralType(k, v)}`).join(' · ');
     this.summary.setText(`${MONTHS[this.month]}: ${list.length} item${list.length === 1 ? '' : 's'}${parts ? ' — ' + parts : ''}`);
   }
   renderFound() {
@@ -576,18 +621,29 @@ class CalView extends ItemView {
       r.onclick = () => { const [y, m] = e.date.split('-').map(Number); this.year = y; this.month = m - 1; this.refresh(); new DetailsModal(this.app, this.plugin, e).open(); };
     });
   }
+  clearDrop() { this.contentEl.querySelectorAll('.mc-drop-before, .mc-drop-after').forEach(x => x.classList.remove('mc-drop-before', 'mc-drop-after')); }
+  async reorderStack(ds, items, srcId, targetId, after) {
+    const src = items.find(x => x.id === srcId); if (!src) return;
+    const rest = items.filter(x => x.id !== srcId), at = rest.findIndex(x => x.id === targetId); if (at < 0) return;
+    rest.splice(at + (after ? 1 : 0), 0, src); // new order of the entries on screen
+    const store = this.plugin.store, full = store.dayList(ds), vis = new Set(items.map(x => x.id));
+    let k = 0; // with a type filter on, hidden entries keep their slots; only the visible ones are reordered among theirs
+    await store.reorder(ds, full.map(x => (vis.has(x.id) ? rest[k++].id : x.id)));
+  }
   renderGrid() {
     const g = this.gridEl; g.empty();
     const cw = this.plugin.settings.coverWidth || 44;
     this.contentEl.style.setProperty('--mc-cover-w', cw + 'px');
     const mon = this.plugin.settings.weekStartsMonday, max = Math.max(1, this.plugin.settings.maxCovers | 0);
+    const stacked = this.plugin.settings.stackCovers !== false;
+    this.drag = null;
     const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']; if (mon) names.push(names.shift());
     const head = g.createDiv({ cls: 'mc-grid mc-head' }); names.forEach(n => head.createDiv({ text: n }));
     const first = new Date(this.year, this.month, 1);
     const off = (first.getDay() - (mon ? 1 : 0) + 7) % 7;
     const dim = new Date(this.year, this.month + 1, 0).getDate();
     const weeks = Math.ceil((off + dim) / 7);
-    const grid = g.createDiv({ cls: 'mc-grid mc-body' }); grid.style.gridTemplateRows = `repeat(${weeks}, minmax(${Math.round(cw * 3 + 34)}px, 1fr))`;
+    const grid = g.createDiv({ cls: 'mc-grid mc-body' }); grid.style.gridTemplateRows = `repeat(${weeks}, minmax(${Math.round(stacked ? cw * 1.5 + 52 : cw * 3 + 34)}px, 1fr))`;
     const map = this.plugin.store.byDate(this.filter), today = fmt(new Date());
     for (let i = 0; i < weeks * 7; i++) {
       const d = new Date(this.year, this.month, 1 - off + i), ds = fmt(d), items = map.get(ds) || [];
@@ -595,25 +651,49 @@ class CalView extends ItemView {
       const h = cell.createDiv({ cls: 'mc-day-h' });
       h.createSpan({ cls: 'mc-num', text: String(d.getDate()) });
       h.createEl('button', { cls: 'mc-plus clickable-icon', text: '+', attr: { 'aria-label': 'Add media' } }).onclick = ev => { ev.stopPropagation(); new AddModal(this.app, this.plugin, ds).open(); };
-      const covers = cell.createDiv({ cls: 'mc-covers' });
-      const over = items.length > max, shown = over ? items.slice(0, max - 1) : items;
-      shown.forEach(e => {
-        const el = coverEl(covers, e); el.setAttr('title', `${e.title} (${e.type})`);
-        el.onclick = ev => { ev.stopPropagation(); new DetailsModal(this.app, this.plugin, e).open(); };
-        el.addEventListener('contextmenu', ev => entryMenu(this.plugin, ev, e));
-        el.draggable = true;
-        el.addEventListener('dragstart', ev => { ev.dataTransfer.setData('text/mc-id', e.id); ev.dataTransfer.effectAllowed = 'copy'; });
+      const covers = cell.createDiv({ cls: 'mc-covers' + (stacked ? ' mc-stacked' : '') });
+      let shown, hidden;
+      if (stacked) { // a deck: the first card is in front, the rest peek out behind it
+        shown = items.slice(0, max); hidden = items.length - shown.length;
+        covers.style.setProperty('--mc-gaps', String(Math.max(shown.length - 1, 1)));
+      } else { const over = items.length > max; shown = over ? items.slice(0, max - 1) : items; hidden = items.length - shown.length; }
+      shown.forEach((e, idx) => {
+        const host = stacked ? covers.createDiv({ cls: 'mc-slot' }) : covers; // the slot stays put while its card lifts, so hovering doesn't flicker
+        const el = coverEl(host, e), hit = stacked ? host : el;
+        if (stacked) host.style.zIndex = String(shown.length - idx);
+        hit.setAttr('title', `${e.title} (${e.type})`);
+        hit.onclick = ev => { ev.stopPropagation(); new DetailsModal(this.app, this.plugin, e).open(); };
+        hit.addEventListener('contextmenu', ev => entryMenu(this.plugin, ev, e));
+        hit.draggable = true;
+        hit.addEventListener('dragstart', ev => { this.drag = { id: e.id, date: e.date }; hit.addClass('dragging'); ev.dataTransfer.setData('text/mc-id', e.id); ev.dataTransfer.effectAllowed = 'copyMove'; });
+        hit.addEventListener('dragend', () => { this.drag = null; hit.removeClass('dragging'); this.clearDrop(); });
+        // Dropping on a card of the same day reorders; anything else bubbles up to the day cell (copy to that day).
+        const sameDay = () => this.drag && this.drag.date === e.date && this.drag.id !== e.id;
+        const isAfter = ev => { const r = hit.getBoundingClientRect(); return ev.clientX > r.left + r.width / 2; };
+        hit.addEventListener('dragover', ev => {
+          if (!sameDay()) return;
+          ev.preventDefault(); ev.stopPropagation(); ev.dataTransfer.dropEffect = 'move';
+          this.clearDrop(); hit.addClass(isAfter(ev) ? 'mc-drop-after' : 'mc-drop-before');
+        });
+        hit.addEventListener('drop', async ev => {
+          if (!sameDay()) return;
+          ev.preventDefault(); ev.stopPropagation();
+          const id = this.drag.id, after = isAfter(ev); this.clearDrop(); this.drag = null;
+          await this.reorderStack(ds, items, id, e.id, after);
+        });
       });
-      if (over) covers.createDiv({ cls: 'mc-more', text: `+${items.length - shown.length}` });
+      if (hidden > 0) covers.createDiv({ cls: 'mc-more', text: `+${hidden}` });
       cell.onclick = () => new DayModal(this.app, this.plugin, ds, this.filter).open();
-      cell.addEventListener('dragover', ev => { if (ev.dataTransfer.types.includes('text/mc-id')) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; cell.addClass('drop'); } });
+      cell.addEventListener('dragover', ev => { if (this.drag && this.drag.date === ds) return; if (ev.dataTransfer.types.includes('text/mc-id')) { ev.preventDefault(); ev.dataTransfer.dropEffect = this.plugin.settings.dragAction === 'move' ? 'move' : 'copy'; cell.addClass('drop'); } });
       cell.addEventListener('dragleave', () => cell.removeClass('drop'));
       cell.addEventListener('drop', async ev => {
         ev.preventDefault(); cell.removeClass('drop');
         const src = this.plugin.store.entries.find(x => x.id === ev.dataTransfer.getData('text/mc-id'));
         if (!src) return;
-        if (src.date === ds) { new Notice('Already logged on this date.'); return; }
-        if (await this.plugin.store.add({ ...src, date: ds })) new Notice(`Duplicated “${src.title}” to ${ds}`);
+        if (src.date === ds) return; // same day: drop onto another card to reorder
+        if (this.plugin.settings.dragAction === 'move') { // setting: dragging onto another day moves the entry
+          if (await this.plugin.store.update(src.id, { date: ds })) new Notice(`Moved “${src.title}” to ${ds}`);
+        } else if (await this.plugin.store.add({ ...src, date: ds })) new Notice(`Duplicated “${src.title}” to ${ds}`);
       });
     }
   }
@@ -644,8 +724,15 @@ class SettingsTab extends PluginSettingTab {
     new Setting(c).setName('Week starts on Monday').addToggle(t => t.setValue(p.settings.weekStartsMonday).onChange(async v => { p.settings.weekStartsMonday = v; await save(); p.store.emit(); }));
     new Setting(c).setName('Cover size').setDesc('Width of each cover in the calendar, in pixels (also adjustable from the calendar toolbar).')
       .addSlider(s => s.setLimits(24, 120, 2).setValue(p.settings.coverWidth).setDynamicTooltip().onChange(async v => { p.settings.coverWidth = v; await save(); p.store.emit(); }));
+    new Setting(c).setName('Stack covers like a deck').setDesc('Overlap each day’s covers like a deck of cards: hover to lift one, drag a card onto another to reorder. Turn off for a plain grid.')
+      .addToggle(t => t.setValue(p.settings.stackCovers !== false).onChange(async v => { p.settings.stackCovers = v; await save(); p.store.emit(); }));
+    new Setting(c).setName('Dragging a cover to another day').setDesc('Choose what happens when you drag an entry onto a different day. (Dragging onto a card on the same day always reorders.)')
+      .addDropdown(d => d.addOption('copy', 'Duplicate it').addOption('move', 'Move it').setValue(p.settings.dragAction === 'move' ? 'move' : 'copy')
+        .onChange(async v => { p.settings.dragAction = v === 'move' ? 'move' : 'copy'; await save(); }));
     new Setting(c).setName('Add/edit window width').setDesc('Width in pixels. You can also drag the window’s bottom-right corner.')
       .addSlider(s => s.setLimits(600, 1400, 20).setValue(p.settings.modalWidth).setDynamicTooltip().onChange(async v => { p.settings.modalWidth = v; await save(); }));
+    new Setting(c).setName('Window blur').setDesc('Blur behind the add/edit windows, in pixels. 0 turns it off. Takes effect the next time a window opens.')
+      .addSlider(s => s.setLimits(0, 30, 1).setValue(p.settings.modalBlur).setDynamicTooltip().onChange(async v => { p.settings.modalBlur = v; GLASS_BLUR = v; await save(); }));
     new Setting(c).setName('Covers shown per day').setDesc('Extra entries collapse into a “+N” tile.')
       .addSlider(s => s.setLimits(2, 12, 1).setValue(p.settings.maxCovers).setDynamicTooltip().onChange(async v => { p.settings.maxCovers = v; await save(); p.store.emit(); }));
     new Setting(c).setName('Support').setDesc('Optional. If this plugin is useful to you, you can buy me a coffee. Nothing is locked behind it.')
@@ -656,6 +743,7 @@ class SettingsTab extends PluginSettingTab {
 module.exports = class MediaCalendarPlugin extends Plugin {
   async onload() {
     this.settings = Object.assign({}, DEFAULTS, await this.loadData());
+    GLASS_BLUR = Number.isFinite(+this.settings.modalBlur) ? +this.settings.modalBlur : DEFAULTS.modalBlur;
     this.store = new Store(this);
     this.registerView(VIEW_TYPE, leaf => new CalView(leaf, this));
     this.addRibbonIcon('calendar-days', 'Open Media Calendar', () => this.openView());
@@ -672,3 +760,5 @@ module.exports = class MediaCalendarPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
 };
+
+/* nosourcemap */

@@ -63,6 +63,7 @@
 .mc-details { display: flex; gap: 16px; }
 .mc-details-cover { width: 160px; flex: none; }
 .mc-details-cover .mc-cover { cursor: default; }
+.mc-details-cover .mc-change-cover { width: 100%; margin-top: 8px; }
 .mc-details .mc-form { grid-template-columns: 1fr; }
 .mc-field { display: flex; flex-direction: column; gap: 2px; }
 .mc-field label { font-size: var(--font-ui-smaller); color: var(--text-muted); }
@@ -84,6 +85,60 @@
 .mc-cover.mc-land::before { content: ''; position: absolute; inset: -10%; background-image: var(--mc-bg); background-size: cover; background-position: center; filter: blur(6px) brightness(.55); }
 
 .mc-day.drop { outline: 2px dashed var(--interactive-accent); outline-offset: -2px; background: color-mix(in srgb, var(--interactive-accent) 12%, transparent); }
-.mc-cover[draggable=true] { cursor: grab; }
+.mc-cover[draggable=true], .mc-slot[draggable=true] { cursor: grab; }
+.mc-cover.dragging, .mc-slot.dragging .mc-cover { opacity: .4; }
 
 .mc-prompt-input { width: 100%; }
+
+/* ── Frosted-glass windows (this plugin's modals only) ──
+   The blur follows the "Window blur" slider in the plugin settings (it sets --mc-glass-blur
+   on each window; 10px is the fallback). Opacity and backdrop blur are set below.
+   Solid fallback comes first, so a device without backdrop-filter still gets a readable window. */
+.modal-container:has(.mc-modal-el, .mc-prompt-input, .mc-actions) {
+  --mc-glass-alpha: 82%;     /* window opacity: higher = more solid, 100% = fully opaque */
+  --mc-backdrop-blur: 3px;   /* blur of the dimmed area around the window */
+}
+.modal-container:has(.mc-modal-el, .mc-prompt-input, .mc-actions) .modal {
+  background: var(--background-primary);
+}
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .modal-container:has(.mc-modal-el, .mc-prompt-input, .mc-actions) .modal {
+    background: color-mix(in srgb, var(--background-primary) var(--mc-glass-alpha), transparent);
+    -webkit-backdrop-filter: blur(var(--mc-glass-blur, 10px)) saturate(1.15);
+    backdrop-filter: blur(var(--mc-glass-blur, 10px)) saturate(1.15);
+  }
+  .modal-container:has(.mc-modal-el, .mc-prompt-input, .mc-actions) .modal-bg {
+    -webkit-backdrop-filter: blur(var(--mc-backdrop-blur));
+    backdrop-filter: blur(var(--mc-backdrop-blur));
+  }
+}
+
+/* ── Stacked covers: each day's covers overlap like a deck (first card in front) ── */
+.mc-covers.mc-stacked {
+  container-type: inline-size;
+  position: relative;
+  display: flex; flex-wrap: nowrap; align-items: flex-start; justify-content: flex-start;
+  gap: 0; padding: 9px 2px 2px;           /* top padding leaves room for a lifted card */
+}
+.mc-stacked .mc-slot { position: relative; flex: 0 0 var(--mc-cover-w, 44px); width: var(--mc-cover-w, 44px); cursor: pointer; }
+.mc-stacked .mc-slot:not(:first-child) {
+  margin-left: calc(var(--mc-cover-w, 44px) * -0.5);   /* fallback if container units aren't supported */
+  /* visible strip per card: shrinks as more cards are added so the whole deck fits the day cell */
+  margin-left: calc(clamp(10px, (100cqw - var(--mc-cover-w, 44px)) / var(--mc-gaps, 1), var(--mc-cover-w, 44px) * 0.6) - var(--mc-cover-w, 44px));
+}
+.mc-stacked .mc-slot .mc-cover { width: 100%; transition: transform .18s ease, box-shadow .18s ease; }
+@media (hover: hover) {                    /* no sticky "lift" on touch screens */
+  .mc-stacked .mc-slot:hover { z-index: 100 !important; }
+  .mc-stacked .mc-slot:hover .mc-cover { transform: translateY(-8px) scale(1.05); box-shadow: 0 8px 14px rgba(0,0,0,.55); }
+}
+.mc-stacked .mc-more {
+  position: absolute; right: 2px; bottom: 2px; z-index: 200;
+  width: auto; aspect-ratio: auto; padding: 0 6px; border: none; border-radius: 999px;
+  background: var(--interactive-accent); color: var(--text-on-accent); font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) { .mc-stacked .mc-slot .mc-cover { transition: none; } }
+
+/* ── Reordering by drag: marker on the side where the card will land ── */
+.mc-slot.mc-drop-before, .mc-slot.mc-drop-after { z-index: 150 !important; }
+.mc-slot.mc-drop-before .mc-cover, .mc-cover.mc-drop-before { box-shadow: -3px 0 0 var(--interactive-accent), 0 1px 3px rgba(0,0,0,.45); }
+.mc-slot.mc-drop-after .mc-cover, .mc-cover.mc-drop-after { box-shadow: 3px 0 0 var(--interactive-accent), 0 1px 3px rgba(0,0,0,.45); }
